@@ -1,0 +1,69 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: notification
+  namespace: micromart
+  labels:
+    app: notification
+spec:
+  replicas: 1   # ステートレス Consumer、スケールアウト時は consumer group で制御
+  selector:
+    matchLabels:
+      app: notification
+  template:
+    metadata:
+      labels:
+        app: notification
+    spec:
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: notification
+          image: localhost:5001/micromart-notification:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8081
+              name: health
+          env:
+            - name: HTTP_PORT
+              value: "8081"
+            - name: KAFKA_BROKERS
+              value: "kafka-0.kafka:9092"
+            - name: SERVICE_NAME
+              value: notification-service
+            - name: JAEGER_ENDPOINT
+              valueFrom:
+                configMapKeyRef:
+                  name: observability-config
+                  key: JAEGER_ENDPOINT
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8081
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8081
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 30m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: notification
+  namespace: micromart
+spec:
+  selector:
+    app: notification
+  ports:
+    - name: health
+      port: 8081
+      targetPort: 8081

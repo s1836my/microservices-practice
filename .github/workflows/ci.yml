@@ -1,0 +1,242 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+env:
+  GO_VERSION: "1.22"
+
+jobs:
+  # ── 変更されたサービスを検出 ─────────────────────────────────────────────────
+  detect-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      services: ${{ steps.filter.outputs.changes }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            gateway:
+              - 'services/gateway/**'
+            user:
+              - 'services/user/**'
+            product:
+              - 'services/product/**'
+            search:
+              - 'services/search/**'
+            cart:
+              - 'services/cart/**'
+            order:
+              - 'services/order/**'
+            payment:
+              - 'services/payment/**'
+            notification:
+              - 'services/notification/**'
+            proto:
+              - 'proto/**'
+            pkg:
+              - 'pkg/**'
+
+  # ── Lint ────────────────────────────────────────────────────────────────────
+  lint:
+    runs-on: ubuntu-latest
+    needs: detect-changes
+    strategy:
+      matrix:
+        service: [gateway, user, product, search, cart, order, payment, notification]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: services/${{ matrix.service }}/go.sum
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: v1.58
+          working-directory: services/${{ matrix.service }}
+
+  # ── Unit Test ────────────────────────────────────────────────────────────────
+  test:
+    runs-on: ubuntu-latest
+    needs: detect-changes
+    strategy:
+      matrix:
+        service: [gateway, user, product, search, cart, order, payment, notification]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: services/${{ matrix.service }}/go.sum
+
+      - name: Run tests
+        working-directory: services/${{ matrix.service }}
+        run: go test ./... -race -count=1 -coverprofile=coverage.out
+
+      - name: Check coverage (>= 80%)
+        working-directory: services/${{ matrix.service }}
+        run: |
+          COVERAGE=$(go tool cover -func=coverage.out | grep total | awk '{print $3}' | sed 's/%//')
+          echo "Coverage: ${COVERAGE}%"
+          if (( $(echo "$COVERAGE < 80" | bc -l) )); then
+            echo "Coverage ${COVERAGE}% is below 80%"
+            exit 1
+          fi
+
+      - name: Upload coverage
+        uses: codecov/codecov-action@v4
+        with:
+          files: services/${{ matrix.service }}/coverage.out
+          flags: ${{ matrix.service }}
+
+  # ── pkg/ 共有ライブラリ テスト & Lint ─────────────────────────────────────────
+  test-pkg:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: pkg/go.sum
+
+      - name: Run pkg tests
+        working-directory: pkg
+        run: go test ./... -race -count=1 -coverprofile=coverage.out
+
+      - name: Check coverage (>= 80%)
+        working-directory: pkg
+        run: |
+          COVERAGE=$(go tool cover -func=coverage.out | grep total | awk '{print $3}' | sed 's/%//')
+          echo "Coverage: ${COVERAGE}%"
+          if (( $(echo "$COVERAGE < 80" | bc -l) )); then
+            echo "Coverage ${COVERAGE}% is below 80%"
+            exit 1
+          fi
+
+      - name: Upload coverage
+        uses: codecov/codecov-action@v4
+        with:
+          files: pkg/coverage.out
+          flags: pkg
+
+  lint-pkg:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: pkg/go.sum
+
+      - name: golangci-lint (pkg)
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: v1.58
+          working-directory: pkg
+
+  # ── Integration Test ──────────────────────────────────────────────────────────
+  integration-test:
+    runs-on: ubuntu-latest
+    needs: test
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: test_secret
+          POSTGRES_USER: test
+          POSTGRES_DB: test_db
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+        ports:
+          - 5432:5432
+      redis:
+        image: redis:7-alpine
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-retries 10
+        ports:
+          - 6379:6379
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Start Kafka (KRaft)
+        run: |
+          docker run -d --name kafka \
+            -e KAFKA_NODE_ID=1 \
+            -e KAFKA_PROCESS_ROLES=broker,controller \
+            -e KAFKA_CONTROLLER_QUORUM_VOTERS=1@localhost:9093 \
+            -e KAFKA_LISTENERS=PLAINTEXT://:9092,CONTROLLER://:9093 \
+            -e KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://localhost:9092 \
+            -e KAFKA_LISTENER_SECURITY_PROTOCOL_MAP=PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT \
+            -e KAFKA_CONTROLLER_LISTENER_NAMES=CONTROLLER \
+            -e KAFKA_LOG_DIRS=/var/lib/kafka/data \
+            -p 9092:9092 \
+            apache/kafka:3.7.0
+          sleep 15
+
+      - name: Run integration tests
+        env:
+          TEST_DB_URL: "postgres://test:test_secret@localhost:5432/test_db?sslmode=disable"
+          TEST_REDIS_ADDR: "localhost:6379"
+          TEST_KAFKA_BROKERS: "localhost:9092"
+        run: |
+          for svc in user product order payment cart; do
+            if ls services/$svc/internal/**/*_integration_test.go 2>/dev/null; then
+              echo "Running integration tests for $svc..."
+              cd services/$svc && go test ./... -tags=integration -count=1 && cd ../..
+            fi
+          done
+
+  # ── Proto Lint ───────────────────────────────────────────────────────────────
+  proto-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: bufbuild/buf-setup-action@v1
+      - name: Lint proto files
+        run: buf lint proto/
+      - name: Check breaking changes
+        if: github.event_name == 'pull_request'
+        run: buf breaking proto/ --against "https://github.com/${{ github.repository }}.git#branch=main,subdir=proto"
+
+  # ── Build Docker Images ──────────────────────────────────────────────────────
+  build:
+    runs-on: ubuntu-latest
+    needs: [lint, test, test-pkg, lint-pkg]
+    if: github.event_name == 'push'
+    strategy:
+      matrix:
+        service: [gateway, user, product, search, cart, order, payment, notification]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image (no push on CI)
+        uses: docker/build-push-action@v5
+        with:
+          context: services/${{ matrix.service }}
+          push: false
+          tags: micromart-${{ matrix.service }}:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

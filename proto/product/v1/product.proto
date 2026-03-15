@@ -1,0 +1,143 @@
+syntax = "proto3";
+
+package product.v1;
+
+option go_package = "github.com/yourorg/micromart/proto/product/v1;productv1";
+
+import "google/protobuf/timestamp.proto";
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Product Service
+// ──────────────────────────────────────────────────────────────────────────────
+
+service ProductService {
+  // 商品 CRUD
+  rpc CreateProduct (CreateProductRequest) returns (CreateProductResponse);
+  rpc GetProduct    (GetProductRequest)    returns (GetProductResponse);
+  rpc UpdateProduct (UpdateProductRequest) returns (UpdateProductResponse);
+  rpc DeleteProduct (DeleteProductRequest) returns (DeleteProductResponse);
+  rpc ListProducts  (ListProductsRequest)  returns (ListProductsResponse);
+
+  // 在庫管理（Order Service から呼ばれる内部 RPC）
+  rpc ReserveInventory (ReserveInventoryRequest)  returns (ReserveInventoryResponse);
+  rpc ReleaseInventory (ReleaseInventoryRequest)  returns (ReleaseInventoryResponse);
+  rpc GetInventory     (GetInventoryRequest)      returns (GetInventoryResponse);
+}
+
+// ── CreateProduct ─────────────────────────────────────────────────────────────
+
+message CreateProductRequest {
+  string seller_id    = 1;
+  string category_id  = 2;
+  string name         = 3;
+  string description  = 4;
+  int64  price        = 5;
+  int32  initial_stock = 6;
+  repeated string images = 7;
+}
+
+message CreateProductResponse {
+  Product product = 1;
+}
+
+// ── GetProduct ────────────────────────────────────────────────────────────────
+
+message GetProductRequest {
+  string product_id = 1;
+}
+
+message GetProductResponse {
+  Product product = 1;
+}
+
+// ── UpdateProduct ─────────────────────────────────────────────────────────────
+
+message UpdateProductRequest {
+  string product_id  = 1;
+  string name        = 2;
+  string description = 3;
+  int64  price       = 4;
+  string status      = 5;
+}
+
+message UpdateProductResponse {
+  Product product = 1;
+}
+
+// ── DeleteProduct ─────────────────────────────────────────────────────────────
+
+message DeleteProductRequest {
+  string product_id = 1;
+}
+
+message DeleteProductResponse {}
+
+// ── ListProducts ──────────────────────────────────────────────────────────────
+
+message ListProductsRequest {
+  string category_id = 1;
+  string seller_id   = 2;
+  int32  page        = 3;
+  int32  page_size   = 4;  // max 100
+}
+
+message ListProductsResponse {
+  repeated Product products = 1;
+  int32            total    = 2;
+}
+
+// ── ReserveInventory ──────────────────────────────────────────────────────────
+
+message ReserveInventoryRequest {
+  string order_id = 1;
+  repeated InventoryItem items = 2;
+}
+
+message ReserveInventoryResponse {
+  bool             success      = 1;
+  string           failure_reason = 2;
+  repeated InventoryItem reserved_items = 3;
+}
+
+// ── ReleaseInventory (補償) ────────────────────────────────────────────────────
+
+message ReleaseInventoryRequest {
+  string order_id = 1;
+  repeated InventoryItem items = 2;
+}
+
+message ReleaseInventoryResponse {}
+
+// ── GetInventory ──────────────────────────────────────────────────────────────
+
+message GetInventoryRequest {
+  string product_id = 1;
+}
+
+message GetInventoryResponse {
+  string product_id     = 1;
+  int32  stock          = 2;
+  int32  reserved_stock = 3;
+  int32  available      = 4;  // stock - reserved_stock
+}
+
+// ── Common ────────────────────────────────────────────────────────────────────
+
+message Product {
+  string                    product_id   = 1;
+  string                    seller_id    = 2;
+  string                    category_id  = 3;
+  string                    name         = 4;
+  string                    description  = 5;
+  int64                     price        = 6;
+  int32                     stock        = 7;
+  string                    status       = 8;
+  repeated string           images       = 9;
+  google.protobuf.Timestamp created_at   = 10;
+  google.protobuf.Timestamp updated_at   = 11;
+}
+
+message InventoryItem {
+  string product_id = 1;
+  int32  quantity   = 2;
+}

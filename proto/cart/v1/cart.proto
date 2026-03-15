@@ -1,0 +1,85 @@
+syntax = "proto3";
+
+package cart.v1;
+
+option go_package = "github.com/yourorg/micromart/proto/cart/v1;cartv1";
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Cart Service
+// ──────────────────────────────────────────────────────────────────────────────
+
+service CartService {
+  rpc GetCart       (GetCartRequest)       returns (GetCartResponse);
+  rpc AddItem       (AddItemRequest)       returns (AddItemResponse);
+  rpc UpdateItem    (UpdateItemRequest)    returns (UpdateItemResponse);
+  rpc RemoveItem    (RemoveItemRequest)    returns (RemoveItemResponse);
+  rpc ClearCart     (ClearCartRequest)     returns (ClearCartResponse);
+}
+
+// ── GetCart ───────────────────────────────────────────────────────────────────
+
+message GetCartRequest {
+  string user_id = 1;
+}
+
+message GetCartResponse {
+  Cart cart = 1;
+}
+
+// ── AddItem ───────────────────────────────────────────────────────────────────
+
+message AddItemRequest {
+  string user_id    = 1;
+  string product_id = 2;
+  int32  quantity   = 3;
+}
+
+message AddItemResponse {
+  Cart cart = 1;
+}
+
+// ── UpdateItem ────────────────────────────────────────────────────────────────
+
+message UpdateItemRequest {
+  string user_id    = 1;
+  string product_id = 2;
+  int32  quantity   = 3;  // 0 で削除
+}
+
+message UpdateItemResponse {
+  Cart cart = 1;
+}
+
+// ── RemoveItem ────────────────────────────────────────────────────────────────
+
+message RemoveItemRequest {
+  string user_id    = 1;
+  string product_id = 2;
+}
+
+message RemoveItemResponse {}
+
+// ── ClearCart ─────────────────────────────────────────────────────────────────
+
+message ClearCartRequest {
+  string user_id = 1;
+}
+
+message ClearCartResponse {}
+
+// ── Common ────────────────────────────────────────────────────────────────────
+
+message Cart {
+  string            user_id     = 1;
+  repeated CartItem items       = 2;
+  int64             total_price = 3;
+  int32             item_count  = 4;
+}
+
+message CartItem {
+  string product_id   = 1;
+  string product_name = 2;
+  int64  unit_price   = 3;
+  int32  quantity     = 4;
+  int64  subtotal     = 5;
+}

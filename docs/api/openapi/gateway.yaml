@@ -1,0 +1,562 @@
+openapi: "3.0.3"
+info:
+  title: MicroMart API Gateway
+  description: MicroMart ECマーケットプレイス REST API
+  version: "1.0.0"
+  contact:
+    name: MicroMart Team
+
+servers:
+  - url: http://localhost:8080
+    description: ローカル開発環境
+  - url: https://api.micromart.example.com
+    description: 本番環境
+
+tags:
+  - name: auth
+    description: 認証・認可
+  - name: users
+    description: ユーザープロフィール
+  - name: products
+    description: 商品管理・参照
+  - name: search
+    description: 商品全文検索
+  - name: cart
+    description: カート管理
+  - name: orders
+    description: 注文管理
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Security Schemes
+# ──────────────────────────────────────────────────────────────────────────────
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    # ── 共通 ──────────────────────────────────────────────────────────────────
+    ErrorResponse:
+      type: object
+      required: [error, code]
+      properties:
+        error:   { type: string, example: "invalid credentials" }
+        code:    { type: string, example: "UNAUTHENTICATED" }
+        details: { type: object }
+
+    PaginationMeta:
+      type: object
+      properties:
+        total:     { type: integer, example: 100 }
+        page:      { type: integer, example: 1 }
+        page_size: { type: integer, example: 20 }
+
+    # ── User ──────────────────────────────────────────────────────────────────
+    User:
+      type: object
+      properties:
+        user_id:    { type: string, format: uuid }
+        email:      { type: string, format: email }
+        name:       { type: string }
+        role:       { type: string, enum: [customer, seller, admin] }
+        status:     { type: string, enum: [active, suspended] }
+        created_at: { type: string, format: date-time }
+
+    # ── Product ───────────────────────────────────────────────────────────────
+    Product:
+      type: object
+      properties:
+        product_id:  { type: string, format: uuid }
+        seller_id:   { type: string, format: uuid }
+        category_id: { type: string, format: uuid }
+        name:        { type: string }
+        description: { type: string }
+        price:       { type: integer, description: "円単位" }
+        stock:       { type: integer }
+        status:      { type: string, enum: [draft, active, inactive] }
+        images:      { type: array, items: { type: string, format: uri } }
+        created_at:  { type: string, format: date-time }
+        updated_at:  { type: string, format: date-time }
+
+    # ── Cart ──────────────────────────────────────────────────────────────────
+    Cart:
+      type: object
+      properties:
+        user_id:     { type: string, format: uuid }
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/CartItem" }
+        total_price: { type: integer }
+        item_count:  { type: integer }
+
+    CartItem:
+      type: object
+      properties:
+        product_id:   { type: string, format: uuid }
+        product_name: { type: string }
+        unit_price:   { type: integer }
+        quantity:     { type: integer }
+        subtotal:     { type: integer }
+
+    # ── Order ─────────────────────────────────────────────────────────────────
+    Order:
+      type: object
+      properties:
+        order_id:       { type: string, format: uuid }
+        user_id:        { type: string, format: uuid }
+        status:
+          type: string
+          enum: [CREATED, PAYMENT_PENDING, PAYMENT_COMPLETED, INVENTORY_RESERVING, COMPLETED, CANCELLED]
+        total_amount:   { type: integer }
+        currency:       { type: string, example: "JPY" }
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/OrderItem" }
+        failure_reason: { type: string }
+        created_at:     { type: string, format: date-time }
+        updated_at:     { type: string, format: date-time }
+
+    OrderItem:
+      type: object
+      properties:
+        product_id:   { type: string, format: uuid }
+        product_name: { type: string }
+        seller_id:    { type: string, format: uuid }
+        unit_price:   { type: integer }
+        quantity:     { type: integer }
+        subtotal:     { type: integer }
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Paths
+# ──────────────────────────────────────────────────────────────────────────────
+paths:
+
+  # ── Health ────────────────────────────────────────────────────────────────
+  /health:
+    get:
+      summary: ヘルスチェック
+      operationId: healthCheck
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:  { type: string, example: "ok" }
+                  version: { type: string, example: "1.0.0" }
+
+  # ── Auth ──────────────────────────────────────────────────────────────────
+  /api/v1/auth/register:
+    post:
+      tags: [auth]
+      summary: ユーザー登録
+      operationId: register
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password, name]
+              properties:
+                email:    { type: string, format: email }
+                password: { type: string, minLength: 8 }
+                name:     { type: string, minLength: 1, maxLength: 100 }
+      responses:
+        "201":
+          description: 登録成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user_id: { type: string, format: uuid }
+        "409":
+          description: メールアドレス重複
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+
+  /api/v1/auth/login:
+    post:
+      tags: [auth]
+      summary: ログイン
+      operationId: login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email:    { type: string, format: email }
+                password: { type: string }
+      responses:
+        "200":
+          description: ログイン成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  access_token:  { type: string }
+                  refresh_token: { type: string }
+                  expires_in:    { type: integer, example: 3600 }
+        "401":
+          description: 認証失敗
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+
+  /api/v1/auth/refresh:
+    post:
+      tags: [auth]
+      summary: トークンリフレッシュ
+      operationId: refresh
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refresh_token]
+              properties:
+                refresh_token: { type: string }
+      responses:
+        "200":
+          description: リフレッシュ成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  access_token: { type: string }
+                  expires_in:   { type: integer }
+
+  # ── Users ────────────────────────────────────────────────────────────────
+  /api/v1/users/me:
+    get:
+      tags: [users]
+      summary: 自分のプロフィール取得
+      operationId: getMe
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/User" }
+
+    put:
+      tags: [users]
+      summary: プロフィール更新
+      operationId: updateMe
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string, minLength: 1, maxLength: 100 }
+      responses:
+        "200":
+          description: 更新成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/User" }
+
+  # ── Products ─────────────────────────────────────────────────────────────
+  /api/v1/products:
+    get:
+      tags: [products]
+      summary: 商品一覧取得
+      operationId: listProducts
+      parameters:
+        - in: query
+          name: category_id
+          schema: { type: string, format: uuid }
+        - in: query
+          name: page
+          schema: { type: integer, default: 1 }
+        - in: query
+          name: page_size
+          schema: { type: integer, default: 20, maximum: 100 }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: "#/components/schemas/Product" } }
+                  meta: { $ref: "#/components/schemas/PaginationMeta" }
+
+    post:
+      tags: [products]
+      summary: 商品作成（出品者のみ）
+      operationId: createProduct
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [category_id, name, price, initial_stock]
+              properties:
+                category_id:   { type: string, format: uuid }
+                name:          { type: string, minLength: 1, maxLength: 255 }
+                description:   { type: string }
+                price:         { type: integer, minimum: 0 }
+                initial_stock: { type: integer, minimum: 0 }
+                images:        { type: array, items: { type: string, format: uri } }
+      responses:
+        "201":
+          description: 作成成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/Product" }
+
+  /api/v1/products/{product_id}:
+    get:
+      tags: [products]
+      summary: 商品詳細取得
+      operationId: getProduct
+      parameters:
+        - in: path
+          name: product_id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/Product" }
+        "404":
+          description: 商品が見つからない
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+
+  # ── Search ───────────────────────────────────────────────────────────────
+  /api/v1/products/search:
+    get:
+      tags: [search]
+      summary: 商品全文検索
+      operationId: searchProducts
+      parameters:
+        - in: query
+          name: q
+          required: true
+          schema: { type: string, minLength: 1 }
+          description: 検索クエリ
+        - in: query
+          name: category_id
+          schema: { type: string, format: uuid }
+        - in: query
+          name: price_min
+          schema: { type: integer, minimum: 0 }
+        - in: query
+          name: price_max
+          schema: { type: integer, minimum: 0 }
+        - in: query
+          name: sort_by
+          schema:
+            type: string
+            enum: [relevance, price_asc, price_desc, newest]
+            default: relevance
+        - in: query
+          name: page
+          schema: { type: integer, default: 1 }
+        - in: query
+          name: page_size
+          schema: { type: integer, default: 20, maximum: 50 }
+      responses:
+        "200":
+          description: 検索結果
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: "#/components/schemas/Product" } }
+                  meta: { $ref: "#/components/schemas/PaginationMeta" }
+
+  # ── Cart ─────────────────────────────────────────────────────────────────
+  /api/v1/cart:
+    get:
+      tags: [cart]
+      summary: カート取得
+      operationId: getCart
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/Cart" }
+
+  /api/v1/cart/items:
+    post:
+      tags: [cart]
+      summary: カートにアイテム追加
+      operationId: addCartItem
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [product_id, quantity]
+              properties:
+                product_id: { type: string, format: uuid }
+                quantity:   { type: integer, minimum: 1 }
+      responses:
+        "200":
+          description: 追加後のカート
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/Cart" }
+
+  /api/v1/cart/items/{product_id}:
+    delete:
+      tags: [cart]
+      summary: カートからアイテム削除
+      operationId: removeCartItem
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: path
+          name: product_id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "204":
+          description: 削除成功
+
+  # ── Orders ────────────────────────────────────────────────────────────────
+  /api/v1/orders:
+    post:
+      tags: [orders]
+      summary: 注文作成
+      operationId: createOrder
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [idempotency_key, items]
+              properties:
+                idempotency_key:
+                  type: string
+                  description: 二重注文防止キー（クライアント生成UUID）
+                items:
+                  type: array
+                  minItems: 1
+                  items:
+                    type: object
+                    required: [product_id, quantity]
+                    properties:
+                      product_id: { type: string, format: uuid }
+                      quantity:   { type: integer, minimum: 1 }
+      responses:
+        "202":
+          description: 注文受付（非同期処理）
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/Order" }
+        "409":
+          description: 同一 idempotency_key の注文が存在
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+
+    get:
+      tags: [orders]
+      summary: 注文一覧取得
+      operationId: listOrders
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: query
+          name: page
+          schema: { type: integer, default: 1 }
+        - in: query
+          name: page_size
+          schema: { type: integer, default: 20 }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: "#/components/schemas/Order" } }
+                  meta: { $ref: "#/components/schemas/PaginationMeta" }
+
+  /api/v1/orders/{order_id}:
+    get:
+      tags: [orders]
+      summary: 注文詳細取得
+      operationId: getOrder
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: path
+          name: order_id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/Order" }
+        "404":
+          description: 注文が見つからない
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }

@@ -1,0 +1,226 @@
+# 全サービス起動用 (CI・E2E テスト向け)
+# 使い方: make dev
+version: "3.9"
+
+# インフラ設定を継承
+include:
+  - docker-compose.infra.yml
+
+services:
+  # ── API Gateway ─────────────────────────────────────────────────────────────
+  gateway:
+    build:
+      context: ../services/gateway
+      dockerfile: Dockerfile
+    container_name: mm-gateway
+    environment:
+      HTTP_PORT:            "8080"
+      JWT_SECRET:           "${JWT_SECRET:-dev-secret-change-in-prod}"
+      USER_SERVICE_ADDR:    "user:50051"
+      PRODUCT_SERVICE_ADDR: "product:50051"
+      SEARCH_SERVICE_ADDR:  "search:50051"
+      CART_SERVICE_ADDR:    "cart:50051"
+      ORDER_SERVICE_ADDR:   "order:50051"
+      SERVICE_NAME:         "gateway"
+      JAEGER_ENDPOINT:      "http://jaeger:14268/api/traces"
+    ports:
+      - "8080:8080"
+    networks: [micromart]
+    depends_on:
+      user:    { condition: service_healthy }
+      product: { condition: service_healthy }
+      search:  { condition: service_healthy }
+      cart:    { condition: service_healthy }
+      order:   { condition: service_healthy }
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── User Service ─────────────────────────────────────────────────────────────
+  user:
+    build:
+      context: ../services/user
+      dockerfile: Dockerfile
+    container_name: mm-user
+    environment:
+      GRPC_PORT:    "50051"
+      HTTP_PORT:    "8081"
+      DB_HOST:      postgres-users
+      DB_PORT:      "5432"
+      DB_NAME:      micromart_users
+      DB_USER:      micromart
+      DB_PASSWORD:  micromart_secret
+      JWT_SECRET:   "${JWT_SECRET:-dev-secret-change-in-prod}"
+      SERVICE_NAME: "user-service"
+      JAEGER_ENDPOINT: "http://jaeger:14268/api/traces"
+    networks: [micromart]
+    depends_on:
+      postgres-users: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8081/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Product Service ──────────────────────────────────────────────────────────
+  product:
+    build:
+      context: ../services/product
+      dockerfile: Dockerfile
+    container_name: mm-product
+    environment:
+      GRPC_PORT:    "50051"
+      HTTP_PORT:    "8081"
+      DB_HOST:      postgres-products
+      DB_PORT:      "5432"
+      DB_NAME:      micromart_products
+      DB_USER:      micromart
+      DB_PASSWORD:  micromart_secret
+      KAFKA_BROKERS: "kafka:9092"
+      SERVICE_NAME: "product-service"
+      JAEGER_ENDPOINT: "http://jaeger:14268/api/traces"
+    networks: [micromart]
+    depends_on:
+      postgres-products: { condition: service_healthy }
+      kafka:             { condition: service_healthy }
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8081/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Search Service ───────────────────────────────────────────────────────────
+  search:
+    build:
+      context: ../services/search
+      dockerfile: Dockerfile
+    container_name: mm-search
+    environment:
+      GRPC_PORT:             "50051"
+      HTTP_PORT:             "8081"
+      ELASTICSEARCH_ADDR:    "http://elasticsearch:9200"
+      KAFKA_BROKERS:         "kafka:9092"
+      SERVICE_NAME:          "search-service"
+      JAEGER_ENDPOINT:       "http://jaeger:14268/api/traces"
+    networks: [micromart]
+    depends_on:
+      elasticsearch: { condition: service_healthy }
+      kafka:         { condition: service_healthy }
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8081/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Cart Service ─────────────────────────────────────────────────────────────
+  cart:
+    build:
+      context: ../services/cart
+      dockerfile: Dockerfile
+    container_name: mm-cart
+    environment:
+      GRPC_PORT:    "50051"
+      HTTP_PORT:    "8081"
+      REDIS_ADDR:   "redis:6379"
+      REDIS_PASSWORD: "micromart_secret"
+      SERVICE_NAME: "cart-service"
+      JAEGER_ENDPOINT: "http://jaeger:14268/api/traces"
+    networks: [micromart]
+    depends_on:
+      redis: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8081/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Order Service ────────────────────────────────────────────────────────────
+  order:
+    build:
+      context: ../services/order
+      dockerfile: Dockerfile
+    container_name: mm-order
+    environment:
+      GRPC_PORT:              "50051"
+      HTTP_PORT:              "8081"
+      DB_HOST:                postgres-orders
+      DB_PORT:                "5432"
+      DB_NAME:                micromart_orders
+      DB_USER:                micromart
+      DB_PASSWORD:            micromart_secret
+      KAFKA_BROKERS:          "kafka:9092"
+      PAYMENT_SERVICE_ADDR:   "payment:50051"
+      PRODUCT_SERVICE_ADDR:   "product:50051"
+      SERVICE_NAME:           "order-service"
+      JAEGER_ENDPOINT:        "http://jaeger:14268/api/traces"
+    networks: [micromart]
+    depends_on:
+      postgres-orders: { condition: service_healthy }
+      kafka:           { condition: service_healthy }
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8081/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Payment Service ──────────────────────────────────────────────────────────
+  payment:
+    build:
+      context: ../services/payment
+      dockerfile: Dockerfile
+    container_name: mm-payment
+    environment:
+      GRPC_PORT:    "50051"
+      HTTP_PORT:    "8081"
+      DB_HOST:      postgres-payments
+      DB_PORT:      "5432"
+      DB_NAME:      micromart_payments
+      DB_USER:      micromart
+      DB_PASSWORD:  micromart_secret
+      KAFKA_BROKERS: "kafka:9092"
+      SERVICE_NAME: "payment-service"
+      JAEGER_ENDPOINT: "http://jaeger:14268/api/traces"
+    networks: [micromart]
+    depends_on:
+      postgres-payments: { condition: service_healthy }
+      kafka:             { condition: service_healthy }
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8081/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Notification Service ─────────────────────────────────────────────────────
+  notification:
+    build:
+      context: ../services/notification
+      dockerfile: Dockerfile
+    container_name: mm-notification
+    environment:
+      HTTP_PORT:    "8081"
+      KAFKA_BROKERS: "kafka:9092"
+      SERVICE_NAME: "notification-service"
+      JAEGER_ENDPOINT: "http://jaeger:14268/api/traces"
+    networks: [micromart]
+    depends_on:
+      kafka: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8081/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Jaeger (分散トレーシング) ─────────────────────────────────────────────────
+  jaeger:
+    image: jaegertracing/all-in-one:1.57
+    container_name: mm-jaeger
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "16686:16686"   # Jaeger UI
+      - "14268:14268"   # HTTP Collector
+      - "4317:4317"     # OTLP gRPC
+    networks: [micromart]
+    profiles: [observability]

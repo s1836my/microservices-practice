@@ -1,0 +1,99 @@
+apiVersion: skaffold/v4beta11
+kind: Config
+metadata:
+  name: micromart
+
+build:
+  local:
+    push: true
+    useBuildkit: true
+  artifacts:
+    - image: localhost:5001/micromart-gateway
+      context: services/gateway
+      docker:
+        dockerfile: Dockerfile
+    - image: localhost:5001/micromart-user
+      context: services/user
+      docker:
+        dockerfile: Dockerfile
+    - image: localhost:5001/micromart-product
+      context: services/product
+      docker:
+        dockerfile: Dockerfile
+    - image: localhost:5001/micromart-search
+      context: services/search
+      docker:
+        dockerfile: Dockerfile
+    - image: localhost:5001/micromart-cart
+      context: services/cart
+      docker:
+        dockerfile: Dockerfile
+    - image: localhost:5001/micromart-order
+      context: services/order
+      docker:
+        dockerfile: Dockerfile
+    - image: localhost:5001/micromart-payment
+      context: services/payment
+      docker:
+        dockerfile: Dockerfile
+    - image: localhost:5001/micromart-notification
+      context: services/notification
+      docker:
+        dockerfile: Dockerfile
+
+manifests:
+  rawYaml:
+    - deployments/k8s/namespace.yaml
+    - deployments/k8s/secrets.yaml
+    - deployments/k8s/gateway/configmap.yaml
+    - deployments/k8s/infra/postgres.yaml
+    - deployments/k8s/infra/redis.yaml
+    - deployments/k8s/infra/kafka.yaml
+    - deployments/k8s/infra/elasticsearch.yaml
+    - deployments/k8s/gateway/deployment.yaml
+    - deployments/k8s/gateway/service.yaml
+    - deployments/k8s/gateway/ingress.yaml
+    - deployments/k8s/gateway/hpa.yaml
+    - deployments/k8s/user/deployment.yaml
+    - deployments/k8s/product/deployment.yaml
+    - deployments/k8s/search/deployment.yaml
+    - deployments/k8s/cart/deployment.yaml
+    - deployments/k8s/order/deployment.yaml
+    - deployments/k8s/payment/deployment.yaml
+    - deployments/k8s/notification/deployment.yaml
+
+deploy:
+  kubectl: {}
+
+# ポートフォワード設定 (skaffold dev --port-forward 時に自動設定)
+portForward:
+  - resourceType: service
+    resourceName: gateway
+    namespace: micromart
+    port: 80
+    localPort: 8080
+  - resourceType: service
+    resourceName: elasticsearch
+    namespace: micromart
+    port: 9200
+    localPort: 9200
+  - resourceType: service
+    resourceName: kafka
+    namespace: micromart
+    port: 9092
+    localPort: 9092
+
+profiles:
+  # 開発時: インフラのみ K8s、サービスはホストで go run
+  - name: infra-only
+    manifests:
+      rawYaml:
+        - deployments/k8s/namespace.yaml
+        - deployments/k8s/secrets.yaml
+        - deployments/k8s/gateway/configmap.yaml
+        - deployments/k8s/infra/postgres.yaml
+        - deployments/k8s/infra/redis.yaml
+        - deployments/k8s/infra/kafka.yaml
+        - deployments/k8s/infra/elasticsearch.yaml
+    build:
+      artifacts: []

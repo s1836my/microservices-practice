@@ -1,0 +1,114 @@
+syntax = "proto3";
+
+package user.v1;
+
+option go_package = "github.com/yourorg/micromart/proto/user/v1;userv1";
+
+import "google/protobuf/timestamp.proto";
+
+// ──────────────────────────────────────────────────────────────────────────────
+// User Service
+// ──────────────────────────────────────────────────────────────────────────────
+
+service UserService {
+  // 認証
+  rpc Register  (RegisterRequest)      returns (RegisterResponse);
+  rpc Login     (LoginRequest)         returns (LoginResponse);
+  rpc Refresh   (RefreshRequest)       returns (RefreshResponse);
+  rpc Logout    (LogoutRequest)        returns (LogoutResponse);
+
+  // プロフィール
+  rpc GetUser    (GetUserRequest)      returns (GetUserResponse);
+  rpc UpdateUser (UpdateUserRequest)   returns (UpdateUserResponse);
+
+  // 内部呼び出し（API Gateway からの JWT ユーザー情報取得）
+  rpc GetUserByID (GetUserByIDRequest) returns (GetUserByIDResponse);
+}
+
+// ── Register ──────────────────────────────────────────────────────────────────
+
+message RegisterRequest {
+  string email    = 1;
+  string password = 2;
+  string name     = 3;
+}
+
+message RegisterResponse {
+  string user_id = 1;
+}
+
+// ── Login ─────────────────────────────────────────────────────────────────────
+
+message LoginRequest {
+  string email    = 1;
+  string password = 2;
+}
+
+message LoginResponse {
+  string access_token   = 1;
+  string refresh_token  = 2;
+  int64  expires_in     = 3;  // seconds
+}
+
+// ── Refresh ───────────────────────────────────────────────────────────────────
+
+message RefreshRequest {
+  string refresh_token = 1;
+}
+
+message RefreshResponse {
+  string access_token   = 1;
+  int64  expires_in     = 2;
+  string refresh_token  = 3;  // 新しいリフレッシュトークン（Token Rotation）
+}
+
+// ── Logout ────────────────────────────────────────────────────────────────────
+
+message LogoutRequest {
+  string refresh_token = 1;
+}
+
+message LogoutResponse {}
+
+// ── GetUser ───────────────────────────────────────────────────────────────────
+
+message GetUserRequest {
+  string user_id = 1;
+}
+
+message GetUserResponse {
+  User user = 1;
+}
+
+// ── UpdateUser ────────────────────────────────────────────────────────────────
+
+message UpdateUserRequest {
+  string user_id = 1;
+  string name    = 2;
+}
+
+message UpdateUserResponse {
+  User user = 1;
+}
+
+// ── GetUserByID (内部) ────────────────────────────────────────────────────────
+
+message GetUserByIDRequest {
+  string user_id = 1;
+}
+
+message GetUserByIDResponse {
+  User user = 1;
+}
+
+// ── Common ────────────────────────────────────────────────────────────────────
+
+message User {
+  string                    user_id    = 1;
+  string                    email      = 2;
+  string                    name       = 3;
+  string                    role       = 4;  // "customer" | "seller" | "admin"
+  string                    status     = 5;  // "active" | "suspended"
+  google.protobuf.Timestamp created_at = 6;
+  google.protobuf.Timestamp updated_at = 7;
+}

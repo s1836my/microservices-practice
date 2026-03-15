@@ -1,0 +1,40 @@
+syntax = "proto3";
+
+package payment.v1;
+
+option go_package = "github.com/yourorg/micromart/proto/payment/v1;paymentv1";
+
+import "google/protobuf/timestamp.proto";
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Payment Service
+// ──────────────────────────────────────────────────────────────────────────────
+
+service PaymentService {
+  rpc GetPayment (GetPaymentRequest) returns (GetPaymentResponse);
+}
+
+// ── GetPayment ────────────────────────────────────────────────────────────────
+
+message GetPaymentRequest {
+  string order_id = 1;
+}
+
+message GetPaymentResponse {
+  Payment payment = 1;
+}
+
+// ── Common ────────────────────────────────────────────────────────────────────
+
+message Payment {
+  string                    payment_id      = 1;
+  string                    order_id        = 2;
+  string                    user_id         = 3;
+  int64                     amount          = 4;
+  string                    currency        = 5;
+  string                    status          = 6;  // "PENDING" | "COMPLETED" | "FAILED" | "REFUNDED"
+  string                    provider_txn_id = 7;
+  string                    failure_reason  = 8;
+  google.protobuf.Timestamp created_at      = 9;
+  google.protobuf.Timestamp updated_at      = 10;
+}

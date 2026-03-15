@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gateway-config
+  namespace: micromart
+data:
+  USER_SERVICE_ADDR:    "user:50051"
+  PRODUCT_SERVICE_ADDR: "product:50051"
+  SEARCH_SERVICE_ADDR:  "search:50051"
+  CART_SERVICE_ADDR:    "cart:50051"
+  ORDER_SERVICE_ADDR:   "order:50051"
+---
+# 全サービス共通の可観測性設定
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: observability-config
+  namespace: micromart
+data:
+  JAEGER_ENDPOINT: "http://jaeger.micromart-monitoring:14268/api/traces"

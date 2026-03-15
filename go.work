@@ -1,0 +1,10 @@
+go 1.22.0
+
+// サービスの go.mod は実装時に順次追加する
+use (
+	./pkg
+	./proto
+	./services/gateway
+	./services/product
+	./services/user
+)

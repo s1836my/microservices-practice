@@ -1,0 +1,188 @@
+# インフラのみ起動用 (日常開発はこちらを使う)
+# 使い方: make dev-infra
+
+networks:
+  micromart:
+    driver: bridge
+
+volumes:
+  postgres_users_data:
+  postgres_products_data:
+  postgres_orders_data:
+  postgres_payments_data:
+  redis_data:
+  kafka_data:
+  elasticsearch_data:
+
+services:
+  # ── PostgreSQL: User Service ────────────────────────────────────────────────
+  postgres-users:
+    image: postgres:16-alpine
+    container_name: mm-postgres-users
+    environment:
+      POSTGRES_DB:       micromart_users
+      POSTGRES_USER:     micromart
+      POSTGRES_PASSWORD: micromart_secret
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_users_data:/var/lib/postgresql/data
+    networks: [micromart]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U micromart -d micromart_users"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ── PostgreSQL: Product Service ─────────────────────────────────────────────
+  postgres-products:
+    image: postgres:16-alpine
+    container_name: mm-postgres-products
+    environment:
+      POSTGRES_DB:       micromart_products
+      POSTGRES_USER:     micromart
+      POSTGRES_PASSWORD: micromart_secret
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_products_data:/var/lib/postgresql/data
+    networks: [micromart]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U micromart -d micromart_products"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ── PostgreSQL: Order Service ───────────────────────────────────────────────
+  postgres-orders:
+    image: postgres:16-alpine
+    container_name: mm-postgres-orders
+    environment:
+      POSTGRES_DB:       micromart_orders
+      POSTGRES_USER:     micromart
+      POSTGRES_PASSWORD: micromart_secret
+    ports:
+      - "5434:5432"
+    volumes:
+      - postgres_orders_data:/var/lib/postgresql/data
+    networks: [micromart]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U micromart -d micromart_orders"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ── PostgreSQL: Payment Service ─────────────────────────────────────────────
+  postgres-payments:
+    image: postgres:16-alpine
+    container_name: mm-postgres-payments
+    environment:
+      POSTGRES_DB:       micromart_payments
+      POSTGRES_USER:     micromart
+      POSTGRES_PASSWORD: micromart_secret
+    ports:
+      - "5435:5432"
+    volumes:
+      - postgres_payments_data:/var/lib/postgresql/data
+    networks: [micromart]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U micromart -d micromart_payments"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ── Redis ───────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: mm-redis
+    command: redis-server --requirepass micromart_secret --maxmemory 256mb --maxmemory-policy allkeys-lru
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks: [micromart]
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "micromart_secret", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ── Kafka (KRaft mode, apache/kafka 公式イメージ) ───────────────────────────
+  kafka:
+    image: apache/kafka:3.7.0
+    container_name: mm-kafka
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093,EXTERNAL://:9094
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,EXTERNAL://localhost:9094
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_NUM_PARTITIONS: 3
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+    ports:
+      - "9094:9094"   # ホストからのアクセス用
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+    networks: [micromart]
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 15
+      start_period: 30s
+
+  # ── Kafka UI (開発用) ───────────────────────────────────────────────────────
+  kafdrop:
+    image: obsidiandynamics/kafdrop:latest
+    container_name: mm-kafdrop
+    environment:
+      KAFKA_BROKERCONNECT: kafka:9092
+      JVM_OPTS: "-Xms32M -Xmx64M"
+    ports:
+      - "9000:9000"
+    networks: [micromart]
+    depends_on:
+      kafka:
+        condition: service_healthy
+
+  # ── Elasticsearch ───────────────────────────────────────────────────────────
+  elasticsearch:
+    image: elasticsearch:8.13.4
+    container_name: mm-elasticsearch
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      ES_JAVA_OPTS: "-Xms512m -Xmx512m"
+      cluster.name: micromart
+    ports:
+      - "9200:9200"
+    volumes:
+      - elasticsearch_data:/usr/share/elasticsearch/data
+    networks: [micromart]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9200/_cluster/health || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 20
+      start_period: 30s
+
+  # ── Kibana (開発用・任意) ────────────────────────────────────────────────────
+  kibana:
+    image: kibana:8.13.4
+    container_name: mm-kibana
+    environment:
+      ELASTICSEARCH_HOSTS: http://elasticsearch:9200
+    ports:
+      - "5601:5601"
+    networks: [micromart]
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    profiles: [monitoring]
