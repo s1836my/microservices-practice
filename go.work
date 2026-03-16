@@ -4,7 +4,10 @@ go 1.22.0
 use (
 	./pkg
 	./proto
+	./services/cart
 	./services/gateway
+	./services/order
 	./services/product
+	./services/search
 	./services/user
 )
